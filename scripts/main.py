@@ -3,6 +3,7 @@ import os
 from urllib.request import urlopen, urlretrieve, Request
 from urllib import parse
 import inspect
+import ssl
 
 import gradio as gr
 
@@ -14,6 +15,14 @@ from modules import script_callbacks, scripts
 #So this is my janky workaround to get this extensions directory.
 edirectory = inspect.getfile(lambda: None)
 edirectory = edirectory[:edirectory.find("scripts")]
+
+#Create the ssl context we'll need for our requests.
+#Notice: using the unverified context is dumb and bad and I'm an idiot for even providing it as an option
+#However, I can't seem to find another way to avoid dealing with these expired Let's Encrypt certs
+sslgood = ssl._create_default_https_context()
+sslbad = ssl._create_unverified_context()
+sslbad.check_hostname = False
+sslbad.verify_mode = ssl.CERT_NONE
 
 def loadsettings():
     """Return a dictionary of settings read from settings.json in the extension directory
@@ -27,7 +36,7 @@ def loadsettings():
     file.close()
     return settings
 
-def savesettings(active, username, apikey):
+def savesettings(active, username, apikey, usessl):
     """Save the current username and api key to the active booru
 
     Args:
@@ -36,6 +45,7 @@ def savesettings(active, username, apikey):
         apikey (str): The user's api key
     """    
     settings["active"] = active
+    settings["usessl"] = usessl
 
     #Stepping through all the boorus in the settings till we find the right one
     for booru in settings['boorus']:
@@ -73,7 +83,7 @@ def gethost():
         if booru['name'] == settings['active']:
             return booru['host']
 
-def searchbooru(query, removeanimated, curpage, pagechange=0):
+def searchbooru(query, removeanimated, curpage, sslcontext, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
 
     Args:
@@ -133,7 +143,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
     #setting a user-agent, so this builds a request with custom headers
     request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
-    response = urlopen(request)
+    response = urlopen(request, context=sslgood if sslcontext else sslbad)
     data = json.loads(response.read())
 
     localimages = []
@@ -190,7 +200,7 @@ def updatesettings(active = settings['active']):
             apikey = booru['apikey']
     return username, apikey, active, active
 
-def grabtags(url, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta):
+def grabtags(url, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta, sslcontext):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
 
     Args:
@@ -242,7 +252,7 @@ def grabtags(url, replacespaces, replaceunderscores, includeartist, includechara
 
     print(url)
 
-    response = urlopen(url)
+    response = urlopen(url, context=sslgood if sslcontext else sslbad)
     data = json.loads(response.read())
 
     tags = data['tag_string_general']
@@ -294,6 +304,7 @@ def on_ui_tabs():
     activeboorutext1 = gr.Textbox(label="Current Booru", value=settings['active'], interactive=False)
     activeboorutext2 = gr.Textbox(label="Current Booru", value=settings['active'], interactive=False)
     curpage = gr.Textbox(value="1", label="Page Number", interactive=False, show_label=True)
+    sslcontext = gr.Checkbox(value=settings['usessl'], label="Use SSL (Disabling is not recommended)")
 
     with gr.Blocks() as interface:
         with gr.Tab("Select"):
@@ -330,7 +341,8 @@ def on_ui_tabs():
                             includeartist, 
                             includecharacter, 
                             includecopyright, 
-                            includemeta], 
+                            includemeta,
+                            sslcontext], 
                         outputs=
                             [selectedtags, 
                             selectimage, 
@@ -356,16 +368,16 @@ def on_ui_tabs():
                     searchtext = gr.Textbox(label="Search string", placeholder="List of tags, delimited by spaces")
                     removeanimated = gr.Checkbox(label="Remove results with the \"animated\" tag", value=True)
                     searchbutton = gr.Button(value="Search Booru", variant="primary")
-                    searchtext.submit(fn=searchbooru, inputs=[searchtext, removeanimated, curpage], outputs=[searchimages, curpage])
-                    searchbutton.click(fn=searchbooru, inputs=[searchtext, removeanimated, curpage], outputs=[searchimages, curpage])
+                    searchtext.submit(fn=searchbooru, inputs=[searchtext, removeanimated, sslcontext, curpage], outputs=[searchimages, curpage])
+                    searchbutton.click(fn=searchbooru, inputs=[searchtext, removeanimated, sslcontext, curpage], outputs=[searchimages, curpage])
                 with gr.Column():
                     with gr.Row():
                         prevpage = gr.Button(value="Previous Page")
                         curpage.render()
                         nextpage = gr.Button(value="Next Page")
                         #The functions called here will then call searchbooru, just with a page in/decrement modifier
-                        prevpage.click(fn=gotoprevpage, inputs=[searchtext, removeanimated, curpage], outputs=[searchimages, curpage])
-                        nextpage.click(fn=gotonextpage, inputs=[searchtext, removeanimated, curpage], outputs=[searchimages, curpage])
+                        prevpage.click(fn=gotoprevpage, inputs=[searchtext, removeanimated, sslcontext, curpage], outputs=[searchimages, curpage])
+                        nextpage.click(fn=gotonextpage, inputs=[searchtext, removeanimated, sslcontext, curpage], outputs=[searchimages, curpage])
                     searchimages.render()
                     with gr.Row():
                         sendsearched = gr.Button(value="Send image to tag selection", elem_id="sendselected")
@@ -380,8 +392,9 @@ def on_ui_tabs():
             u, a = getauth()
             username = gr.Textbox(label="Username", value=u)
             apikey = gr.Textbox(label="API Key", value=a)
+            sslcontext.render()
             savesettingsbutton = gr.Button(value="Save Settings", variant="primary")
-            savesettingsbutton.click(fn=savesettings, inputs=[booru, username, apikey])
+            savesettingsbutton.click(fn=savesettings, inputs=[booru, username, apikey, sslcontext])
             booru.change(fn=updatesettings, inputs=booru, outputs=[username, apikey, activeboorutext1, activeboorutext2])
 
     return (interface, "booru2prompt", "b2p_interface"),
