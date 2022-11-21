@@ -1,0 +1,17 @@
+{
+    "active": "Danbooru",
+    "boorus": [
+        {
+            "name": "Danbooru",
+            "host": "https://danbooru.donmai.us",
+            "username": "",
+            "apikey": ""
+        },
+        {
+            "name": "AIBooru",
+            "host": "https://aibooru.space",
+            "username": "",
+            "apikey": ""
+        }
+    ]
+}
