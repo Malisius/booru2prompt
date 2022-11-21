@@ -227,6 +227,9 @@ def grabtags(url, replacespaces, replaceunderscores, includeartist, includechara
     if not url[-4:] == "json":
         url = url + ".json"
 
+    #Add the question mark denoting url parameters back in
+    url += "?"
+
     u, a = getauth()
 
     #Only append login parameters if we actually got some from the above getauth()
