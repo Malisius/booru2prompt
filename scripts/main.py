@@ -36,16 +36,18 @@ def loadsettings():
     file.close()
     return settings
 
-def savesettings(active, username, apikey, usessl):
+def savesettings(active, username, apikey, usessl, negprompt):
     """Save the current username and api key to the active booru
 
     Args:
         active (str): The string identifier of the currently selected booru
         username (str): The username for that booru
         apikey (str): The user's api key
+        negprompt (str): The negative prompt to be appended to each image selection
     """    
     settings["active"] = active
     settings["usessl"] = usessl
+    settings["negativeprompt"] = negprompt
 
     #Stepping through all the boorus in the settings till we find the right one
     for booru in settings['boorus']:
@@ -200,11 +202,12 @@ def updatesettings(active = settings['active']):
             apikey = booru['apikey']
     return username, apikey, active, active
 
-def grabtags(url, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta, sslcontext):
+def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta, sslcontext):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
 
     Args:
         url (str): Either the full path to the post, or just the posts' id, formatted like "id:xxxxxx"
+        negprompt (str): A negative prompt to paste into the relevant field. Setting to None will delete the existing negative prompt at the target
         replacespaces (bool): True to replace all the spaces in the tag list with ", "
         replaceunderscores (bool): True to replace the underscores in each tag with a space
         includeartist (bool): True to include the artist tags in the final tag string
@@ -283,6 +286,11 @@ def grabtags(url, replacespaces, replaceunderscores, includeartist, includechara
     if replaceunderscores:
         tags = tags.replace("_", " ")
 
+    #Adding a line for the negative prompt if we receieved one
+    #It's formatted this way very specifically. This is how the metadata looks on pngs coming out of SD
+    if negprompt:
+        tags += f"\nNegative prompt: {negprompt}"
+
     #Creating the temp directory if it doesn't already exist
     if not os.path.exists(edirectory + "tempimages"):
         os.makedirs(edirectory + "tempimages")
@@ -305,6 +313,7 @@ def on_ui_tabs():
     activeboorutext2 = gr.Textbox(label="Current Booru", value=settings['active'], interactive=False)
     curpage = gr.Textbox(value="1", label="Page Number", interactive=False, show_label=True)
     sslcontext = gr.Checkbox(value=settings['usessl'], label="Use SSL (Disabling is not recommended)")
+    negprompt = gr.Textbox(label="Negative Prompt", value=settings['negativeprompt'], placeholder="Negative prompt to send with along with each prompt")
 
     with gr.Blocks() as interface:
         with gr.Tab("Select"):
@@ -336,6 +345,7 @@ def on_ui_tabs():
                     selectbutton.click(fn=grabtags,
                         inputs=
                             [imagelink, 
+                            negprompt,
                             replacespaces, 
                             replaceunderscores,
                             includeartist, 
@@ -385,7 +395,7 @@ def on_ui_tabs():
                         #gallery, and send it back here to the imagelink output. I cannot fathom why Gradio galleries can't
                         #be used as inputs, but so be it.
                         sendsearched.click(fn = None, _js="switch_to_select", outputs = imagelink)
-        with gr.Tab("API Keys"):
+        with gr.Tab("Settings/API Keys"):
             settingshelptext = gr.HTML(interactive=False, show_label = False, value="API info may not be necessary for some boorus, but certain information or posts may fail to load without it. For example, Danbooru doesn't show certain posts in search results unless you auth as a Gold tier member.")
             settingshelptext2 = gr.HTML(interactive=False, show_label=False, value="Also, please set the booru selection here before using select or search.")
             booru = gr.Dropdown(label="Booru",value=settings['active'],choices=boorulist, interactive=True)
@@ -393,8 +403,9 @@ def on_ui_tabs():
             username = gr.Textbox(label="Username", value=u)
             apikey = gr.Textbox(label="API Key", value=a)
             sslcontext.render()
+            negprompt.render()
             savesettingsbutton = gr.Button(value="Save Settings", variant="primary")
-            savesettingsbutton.click(fn=savesettings, inputs=[booru, username, apikey, sslcontext])
+            savesettingsbutton.click(fn=savesettings, inputs=[booru, username, apikey, sslcontext, negprompt])
             booru.change(fn=updatesettings, inputs=booru, outputs=[username, apikey, activeboorutext1, activeboorutext2])
 
     return (interface, "booru2prompt", "b2p_interface"),
