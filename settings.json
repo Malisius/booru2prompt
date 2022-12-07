@@ -43,8 +43,8 @@
             "apiformat": "json",
             "authparams": "user_id={USER}&api_key={KEY}&",
             "postlist": "/index.php?{AUTH}page=dapi&s=post&q=index&tags={TAGS}&limit={LIMIT}&pid={PAGE}&json=1",
-            "postlist_sublist": "posts",
-            "post": "/index.php?{AUTH}page=dapi&s=post&q=index&tags={TAGS}&limit={LIMIT}&pid={PAGE}&json=1&id={ID}",
+            "postlist_sublist": "post",
+            "post": "/index.php?{AUTH}page=dapi&s=post&q=index&json=1&id={ID}",
             "taglist": "tags",
             "image": "file_url"
         }

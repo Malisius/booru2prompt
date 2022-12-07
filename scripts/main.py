@@ -88,7 +88,7 @@ def getFormat():
         if booru['name'] == settings['active']:
             return booru['format']
 
-def constructURL(query, removeanimated, curpage, limit):
+def constructQueryURL(query, removeanimated, curpage, limit):
     """
     Constructs the querying URL
 
@@ -142,63 +142,38 @@ def constructURL(query, removeanimated, curpage, limit):
 
     return url
 
-def unpackData(d):
-    """
-    Different boorus require handling response data differently
+def saveImage(imageurl, savepath):
+                
+    # need a user agent so that it doesn't 403
+    request = Request(imageurl, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+
+    try:
+        response = urlopen(request)
+
+        with open(savepath, 'wb') as fp:
+            fp = open(savepath, 'wb')
+            fp.write(response.read())
+    except:
+        print(f'FAILED to open url: {imageurl}')
     
+def unpackDict(d):
+    """
+    Unpacks a dict into a list of posts
     Params:
-        d: response data from query
-        
-    Returns:
-        localimages: list of locally saved images
+        d: if a list, unaffected; if a dict post list is read out
     """
-    data = d
-    
+    data = d    
+    fmt = settings['formats'][getFormat()]
     # gelbooru queries returns a dict instead of a list
     if isinstance(data, dict):
         # need to break it out
         for key in data.keys():
-            # could use a var here, but lazy
-            # this is the equivalent for gelbooru
-            if 'post' in key:
+            # look for the key that gives the equivalent list
+            # define per booru in the settings file
+            if fmt['postlist_sublist'] in key:
                 data = data[key]
                 break
-    
-    localimages = []
-
-    #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
-    #check each time we go to save images, just in case
-    if not os.path.exists(edirectory + "tempimages"):
-        os.makedirs(edirectory + "tempimages")
-
-    #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
-    #so we need to make sure to only step through what we got back
-    for i in range(len(data)):
-        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
-        #Doesn't matter. If there's no file to grab, just skip the entry.
-        if 'file_url' in data[i]:
-            imageurl = data[i]['file_url']
-            #The format of this string is important. When we later go to query for specific posts, the user can use
-            #"id:xxxxxx" instead of a full url to make that request
-            id = "id:" + str(data[i]['id'])
-            #I forget why I added this
-            if "http" not in imageurl:
-                imageurl = gethost() + imageurl
-            #We're storing the images locally to be crammed into a Gradio gallery later.
-            #This seemed simpler than using PIL images or whatever.
-            savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            
-            # need a user agent so that it doesn't 403
-            request = Request(imageurl, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
-            response = urlopen(request)
-            
-            with open(savepath, 'wb') as fp:
-                fp = open(savepath, 'wb')
-                fp.write(response.read())
-            
-            localimages.append((savepath, id))
-            
-    return localimages
+    return data
 
 def searchbooru(query, removeanimated, curpage, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
@@ -231,7 +206,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     # magic number for now, probably could be a parameter in the future
     limit = str(6)
 
-    url = constructURL(query, removeanimated, curpage, limit)
+    url = constructQueryURL(query, removeanimated, curpage, limit)
 
     #I had this print here just to test my url building, but I kind of like it, so I'm leaving it
     print(url)
@@ -242,7 +217,35 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     response = urlopen(request)
     data = json.loads(response.read())
     
-    localimages = unpackData(data)
+    data = unpackDict(data)
+    fmt = settings['formats'][getFormat()]
+    localimages = []
+
+    #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
+    #check each time we go to save images, just in case
+    if not os.path.exists(edirectory + "tempimages"):
+        os.makedirs(edirectory + "tempimages")
+
+    #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
+    #so we need to make sure to only step through what we got back
+    for i in range(len(data)):
+        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
+        #Doesn't matter. If there's no file to grab, just skip the entry.
+        if fmt['image'] in data[i]:
+            imageurl = data[i][fmt['image']]
+            #The format of this string is important. When we later go to query for specific posts, the user can use
+            #"id:xxxxxx" instead of a full url to make that request
+            id = "id:" + str(data[i]['id'])
+            #I forget why I added this
+            if "http" not in imageurl:
+                imageurl = gethost() + imageurl
+            #We're storing the images locally to be crammed into a Gradio gallery later.
+            #This seemed simpler than using PIL images or whatever.
+            savepath = edirectory + f"tempimages\\temp{i}.jpg"
+            
+            saveImage(imageurl, savepath)
+            
+            localimages.append((savepath, id))
 
     #We're returning not just the images for the gallery, but the current page number
     #So that textbox in Gradio can be updated
@@ -272,6 +275,41 @@ def updatesettings(active = settings['active']):
             apikey = booru['apikey']
     return username, apikey, active, active
 
+def constructPostURL(id):
+    """
+    Constructs a Post URL using an ID
+    TODO: If someone else wants to parsing pasted links
+    please do so. I'm not going to do that here.
+    
+    Params:
+        id: [str] post ID
+    Returns:
+        url: [str] post URL
+    """
+    host = gethost()
+    u, a = getauth()
+    
+    fmt = settings['formats'][getFormat()]
+    auth = ''
+    
+    url = host + fmt['post']
+    
+    #Only append login parameters if we actually got some from the above getauth()
+    #In the default settings.json in the repo, these are empty strings, so they'll
+    #return false here.
+    if u or a:
+        auth += fmt['authparams']
+        
+        # it either inserts the correct thing or a blank string, so it's ok
+        auth = auth.replace("{USER}", u)
+        auth = auth.replace("{KEY}", a)
+    
+    url = url.replace("{ID}", id)
+    
+    # it either inserts a correct thing or a blank string, so it's ok
+    url = url.replace("{AUTH}", auth)
+    return url
+
 def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
 
@@ -294,61 +332,87 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
     #I struggle to remember what circumstance compelled me to add this.
     if not isinstance(url, str):
         return
-
+    
     #Quick check to see if the user is selecting with the "id:xxxxxx" format.
     #If the are, we can all the extra stuff for them
     if url[0:2] == "id":
-        url = gethost() + "/posts/" + url[3:]
+        id = url[3:]
+        url = constructPostURL(id)
+    
+    # previous implementation, not going to work on this
+    else:
 
-    #Many times, copying a link right off the booru will result in a lot of extra
-    #url parameters. We need to get rid of all those before we add our own.
-    index = url.find("?")
-    if index > -1:
-        url = url[:index]
+        #Many times, copying a link right off the booru will result in a lot of extra
+        #url parameters. We need to get rid of all those before we add our own.
+        index = url.find("?")
+        if index > -1:
+            url = url[:index]
 
-    #Check to make sure the request isn't already a .json api call before we add it ourselves
-    if not url[-4:] == "json":
-        url = url + ".json"
+        #Check to make sure the request isn't already a .json api call before we add it ourselves
+        if not url[-4:] == "json":
+            url = url + ".json"
 
-    #Add the question mark denoting url parameters back in
-    url += "?"
+        #Add the question mark denoting url parameters back in
+        url += "?"
 
-    u, a = getauth()
+        u, a = getauth()
 
-    #Only append login parameters if we actually got some from the above getauth()
-    #In the default settings.json in the repo, these are empty strings, so they'll
-    #return false here.
-    if u:
-        url += f"login={u}&"
-    if a:
-        url += f"api_key={a}&"
+        #Only append login parameters if we actually got some from the above getauth()
+        #In the default settings.json in the repo, these are empty strings, so they'll
+        #return false here.
+        if u:
+            url += f"login={u}&"
+        if a:
+            url += f"api_key={a}&"
 
     print(url)
+    
+    fmt = settings['formats'][getFormat()]
 
-    response = urlopen(url)
+    # always need a header
+    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    response = urlopen(request)
     data = json.loads(response.read())
 
-    tags = data['tag_string_general']
-    imageurl = data['file_url']
+    # is a single post, or is it a gelbooru style response?
+    # probably a more elegant way to do this, but /shrug
+    try:
+        fmt['postlist_sublist']
+        data = unpackDict(data)[0]
+    except:
+        data = data
+    
+    tags = data[fmt['taglist']]
+    imageurl = data[fmt['image']]
 
     if "http" not in imageurl:
         imageurl = gethost() + imageurl
+    
+    # very lazy way of checking if these exist
+    artisttags = ''
+    charactertags = ''
+    copyrighttags = ''
+    metatags = ''
+    
+    try:
+        artisttags = data["tag_string_artist"]
+        charactertags = data["tag_string_character"]
+        copyrighttags = data["tag_string_copyright"]
+        metatags = data["tag_string_meta"]
 
-    artisttags = data["tag_string_artist"]
-    charactertags = data["tag_string_character"]
-    copyrighttags = data["tag_string_copyright"]
-    metatags = data["tag_string_meta"]
-
-    #We got all these extra tags, but we're only including them in the final string if the relevant 
-    #checkboxes have been checked
-    if includeartist and artisttags:
-        tags = artisttags + " " + tags
-    if includecharacter and charactertags:
-        tags = charactertags + " " + tags
-    if includecopyright and copyrighttags:
-        tags = copyrighttags + " " + tags
-    if includemeta and metatags:
-        tags = metatags + " " + tags
+        #We got all these extra tags, but we're only including them in the final string if the relevant 
+        #checkboxes have been checked
+        if includeartist and artisttags:
+            tags = artisttags + " " + tags
+        if includecharacter and charactertags:
+            tags = charactertags + " " + tags
+        if includecopyright and copyrighttags:
+            tags = copyrighttags + " " + tags
+        if includemeta and metatags:
+            tags = metatags + " " + tags
+    # :P
+    except:
+        print(f'Tag Separation Not Supported by {gethost()} !')
 
     #It would be a shame if someone got these backwards and couldn't figure out the issue for a whole day
     if replacespaces:
@@ -364,7 +428,7 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
     #Creating the temp directory if it doesn't already exist
     if not os.path.exists(edirectory + "tempimages"):
         os.makedirs(edirectory + "tempimages")
-    urlretrieve(imageurl, edirectory +  "tempimages\\temp.jpg")
+    saveImage(imageurl, edirectory +  "tempimages\\temp.jpg")
 
     #My god look at that tuple
     return (tags, edirectory + "tempimages\\temp.jpg", artisttags, charactertags, copyrighttags, metatags)
