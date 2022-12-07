@@ -88,9 +88,6 @@ def getFormat():
         if booru['name'] == settings['active']:
             return booru['format']
 
-
-
-
 def constructURL(query, removeanimated, curpage, limit):
     """
     Constructs the querying URL
@@ -119,17 +116,11 @@ def constructURL(query, removeanimated, curpage, limit):
     #return false here.
     if u or a:
         auth += fmt['authparams']
-
-        # do replacements up here
-        if u:
-            auth = auth.replace("{USER}", u)
-        else:
-            auth = auth.replace("{USER}", '')
         
-        if a:
-            auth = auth.replace("{KEY}", a)
-        else:
-            auth = auth.replace("{KEY}", '')
+        # it either inserts the correct thing or a blank string, so it's ok
+        auth = auth.replace("{USER}", u)
+        auth = auth.replace("{KEY}", a)
+
 
     #Add in the -animated tag if that checkbox was selected
     #I have no idea what happens if "animated" is searched for and that box is checked,
@@ -145,18 +136,69 @@ def constructURL(query, removeanimated, curpage, limit):
     url = url.replace("{TAGS}", tags)
     url = url.replace("{LIMIT}", limit)
     url = url.replace("{PAGE}", curpage)
-
-    # handle login params separately
-    if u or a:
-        url = url.replace("{AUTH}", auth)
-    else:
-        url = url.replace("{AUTH}", '')
+    
+    # it either inserts a correct thing or a blank string, so it's ok
+    url = url.replace("{AUTH}", auth)
 
     return url
 
+def unpackData(d):
+    """
+    Different boorus require handling response data differently
+    
+    Params:
+        d: response data from query
+        
+    Returns:
+        localimages: list of locally saved images
+    """
+    data = d
+    
+    # gelbooru queries returns a dict instead of a list
+    if isinstance(data, dict):
+        # need to break it out
+        for key in data.keys():
+            # could use a var here, but lazy
+            # this is the equivalent for gelbooru
+            if 'post' in key:
+                data = data[key]
+                break
+    
+    localimages = []
 
+    #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
+    #check each time we go to save images, just in case
+    if not os.path.exists(edirectory + "tempimages"):
+        os.makedirs(edirectory + "tempimages")
 
-
+    #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
+    #so we need to make sure to only step through what we got back
+    for i in range(len(data)):
+        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
+        #Doesn't matter. If there's no file to grab, just skip the entry.
+        if 'file_url' in data[i]:
+            imageurl = data[i]['file_url']
+            #The format of this string is important. When we later go to query for specific posts, the user can use
+            #"id:xxxxxx" instead of a full url to make that request
+            id = "id:" + str(data[i]['id'])
+            #I forget why I added this
+            if "http" not in imageurl:
+                imageurl = gethost() + imageurl
+            #We're storing the images locally to be crammed into a Gradio gallery later.
+            #This seemed simpler than using PIL images or whatever.
+            savepath = edirectory + f"tempimages\\temp{i}.jpg"
+            
+            # need a user agent so that it doesn't 403
+            request = Request(imageurl, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+            response = urlopen(request)
+            
+            with open(savepath, 'wb') as fp:
+                fp = open(savepath, 'wb')
+                fp.write(response.read())
+            
+            localimages.append((savepath, id))
+            
+    return localimages
 
 def searchbooru(query, removeanimated, curpage, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
@@ -199,32 +241,8 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
     response = urlopen(request)
     data = json.loads(response.read())
-
-    localimages = []
-
-    #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
-    #check each time we go to save images, just in case
-    if not os.path.exists(edirectory + "tempimages"):
-        os.makedirs(edirectory + "tempimages")
-
-    #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
-    #so we need to make sure to only step through what we got back
-    for i in range(len(data)):
-        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
-        #Doesn't matter. If there's no file to grab, just skip the entry.
-        if 'file_url' in data[i]:
-            imageurl = data[i]['file_url']
-            #The format of this string is important. When we later go to query for specific posts, the user can use
-            #"id:xxxxxx" instead of a full url to make that request
-            id = "id:" + str(data[i]['id'])
-            #I forget why I added this
-            if "http" not in imageurl:
-                imageurl = gethost() + imageurl
-            #We're storing the images locally to be crammed into a Gradio gallery later.
-            #This seemed simpler than using PIL images or whatever.
-            savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            image = urlretrieve(imageurl, savepath)
-            localimages.append((savepath, id))
+    
+    localimages = unpackData(data)
 
     #We're returning not just the images for the gallery, but the current page number
     #So that textbox in Gradio can be updated
