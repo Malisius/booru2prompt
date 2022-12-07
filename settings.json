@@ -6,13 +6,47 @@
             "name": "Danbooru",
             "host": "https://danbooru.donmai.us",
             "username": "",
-            "apikey": ""
+            "apikey": "",
+            "format": "Danbooru"
         },
         {
             "name": "AIBooru",
             "host": "https://aibooru.space",
             "username": "",
-            "apikey": ""
+            "apikey": "",
+            "format": "Danbooru"
+        },
+        {
+            "name": "Gelbooru",
+            "host": "https://gelbooru.com",
+            "username": "",
+            "apikey": "",
+            "format": "Gelbooru"
         }
-    ]
+    ],
+    "formats": {
+        "Danbooru": {
+            "apiformat": "json",
+            "authparams": "login={USER}&api_key={KEY}&",
+            "postlist": "/posts.json?{AUTH}tags={TAGS}&limit={LIMIT}&page={PAGE}",
+            "post": "/posts/{ID}.json?{AUTH}",
+            "taglist": "tag_string_general",
+            "additional_tags": [
+                "tag_string_artist",
+                "tag_string_character",
+                "tag_string_copyright",
+                "tag_string_meta"
+            ],
+            "image": "file_url"
+        },
+        "Gelbooru": {
+            "apiformat": "json",
+            "authparams": "user_id={USER}&api_key={KEY}&",
+            "postlist": "/index.php?{AUTH}page=dapi&s=post&q=index&tags={TAGS}&limit={LIMIT}&pid={PAGE}&json=1",
+            "postlist_sublist": "posts",
+            "post": "/index.php?{AUTH}page=dapi&s=post&q=index&tags={TAGS}&limit={LIMIT}&pid={PAGE}&json=1&id={ID}",
+            "taglist": "tags",
+            "image": "file_url"
+        }
+    }
 }
