@@ -75,6 +75,89 @@ def gethost():
         if booru['name'] == settings['active']:
             return booru['host']
 
+
+def getFormat():
+    """
+    Gets the format name for the currently selected booru from settings
+
+    Returns:
+        str: Format name for currently selected booru 
+    """
+
+    for booru in settings['boorus']:
+        if booru['name'] == settings['active']:
+            return booru['format']
+
+
+
+
+def constructURL(query, removeanimated, curpage, limit):
+    """
+    Constructs the querying URL
+
+    Params:
+        query: [str] the original query
+        removeanimated: [bool] whether to remove animated search results
+        curpage: [str] page to search on
+        limit: [str] limit number of results
+
+    Returns:
+        str: Complete querying URL 
+    """
+
+    tags = ''
+    auth = ''
+    host = gethost()
+    u, a = getauth()
+
+    fmt = settings['formats'][getFormat()]
+    
+    url = host + fmt['postlist']
+
+    #Only append login parameters if we actually got some from the above getauth()
+    #In the default settings.json in the repo, these are empty strings, so they'll
+    #return false here.
+    if u or a:
+        auth += fmt['authparams']
+
+        # do replacements up here
+        if u:
+            auth = auth.replace("{USER}", u)
+        else:
+            auth = auth.replace("{USER}", '')
+        
+        if a:
+            auth = auth.replace("{KEY}", a)
+        else:
+            auth = auth.replace("{KEY}", '')
+
+    #Add in the -animated tag if that checkbox was selected
+    #I have no idea what happens if "animated" is searched for and that box is checked,
+    #and I'm not testing that myself
+    if removeanimated:
+        tags += "-animated+"
+
+    #TODO: Add a settings option to change the images-per-page here
+    tags += f"{parse.quote_plus(query)}"
+    
+    # probably could have some global vars for this, but lazy
+    # start with replacements we know we need to do
+    url = url.replace("{TAGS}", tags)
+    url = url.replace("{LIMIT}", limit)
+    url = url.replace("{PAGE}", curpage)
+
+    # handle login params separately
+    if u or a:
+        url = url.replace("{AUTH}", auth)
+    else:
+        url = url.replace("{AUTH}", '')
+
+    return url
+
+
+
+
+
 def searchbooru(query, removeanimated, curpage, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
 
@@ -90,8 +173,6 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
         of the id for that image on the searched booru.
         The string in this return is new current page number, which may or may not have been changed.
     """    
-    host = gethost()
-    u, a = getauth()
 
     #If the page isn't changing, then the user almost certainly is initiating a new
     #search, so we can set the page number back to 1.
@@ -105,29 +186,10 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #We're about to use this in a url, so make it a string real quick
     curpage = str(curpage)
 
-    url = host + f"/posts.json?"
+    # magic number for now, probably could be a parameter in the future
+    limit = str(6)
 
-    #Only append login parameters if we actually got some from the above getauth()
-    #In the default settings.json in the repo, these are empty strings, so they'll
-    #return false here.
-    if u:
-        url += f"login={u}&"
-    if a:
-        url += f"api_key={a}&"
-
-    #Prepare the append some search tags
-    #We can leave this here even if param:query is empty, since the api call still works apparently
-    url += "tags="
-
-    #Add in the -animated tag if that checkbox was selected
-    #I have no idea what happens if "animated" is searched for and that box is checked,
-    #and I'm not testing that myself
-    if removeanimated:
-        url += "-animated+"
-
-    #TODO: Add a settings option to change the images-per-page here
-    url += f"{parse.quote_plus(query)}&limit=6"
-    url += f"&page={curpage}"
+    url = constructURL(query, removeanimated, curpage, limit)
 
     #I had this print here just to test my url building, but I kind of like it, so I'm leaving it
     print(url)
