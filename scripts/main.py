@@ -75,6 +75,106 @@ def gethost():
         if booru['name'] == settings['active']:
             return booru['host']
 
+
+def getFormat():
+    """
+    Gets the format name for the currently selected booru from settings
+
+    Returns:
+        str: Format name for currently selected booru 
+    """
+
+    for booru in settings['boorus']:
+        if booru['name'] == settings['active']:
+            return booru['format']
+
+def constructQueryURL(query, removeanimated, curpage, limit):
+    """
+    Constructs the querying URL
+
+    Params:
+        query: [str] the original query
+        removeanimated: [bool] whether to remove animated search results
+        curpage: [str] page to search on
+        limit: [str] limit number of results
+
+    Returns:
+        str: Complete querying URL 
+    """
+
+    tags = ''
+    auth = ''
+    host = gethost()
+    u, a = getauth()
+
+    fmt = settings['formats'][getFormat()]
+    
+    url = host + fmt['postlist']
+
+    #Only append login parameters if we actually got some from the above getauth()
+    #In the default settings.json in the repo, these are empty strings, so they'll
+    #return false here.
+    if u or a:
+        auth += fmt['authparams']
+        
+        # it either inserts the correct thing or a blank string, so it's ok
+        auth = auth.replace("{USER}", u)
+        auth = auth.replace("{KEY}", a)
+
+
+    #Add in the -animated tag if that checkbox was selected
+    #I have no idea what happens if "animated" is searched for and that box is checked,
+    #and I'm not testing that myself
+    if removeanimated:
+        tags += "-animated+"
+
+    #TODO: Add a settings option to change the images-per-page here
+    tags += f"{parse.quote_plus(query)}"
+    
+    # probably could have some global vars for this, but lazy
+    # start with replacements we know we need to do
+    url = url.replace("{TAGS}", tags)
+    url = url.replace("{LIMIT}", limit)
+    url = url.replace("{PAGE}", curpage)
+    
+    # it either inserts a correct thing or a blank string, so it's ok
+    url = url.replace("{AUTH}", auth)
+
+    return url
+
+def saveImage(imageurl, savepath):
+                
+    # need a user agent so that it doesn't 403
+    request = Request(imageurl, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+
+    try:
+        response = urlopen(request)
+
+        with open(savepath, 'wb') as fp:
+            fp = open(savepath, 'wb')
+            fp.write(response.read())
+    except:
+        print(f'FAILED to open url: {imageurl}')
+    
+def unpackDict(d):
+    """
+    Unpacks a dict into a list of posts
+    Params:
+        d: if a list, unaffected; if a dict post list is read out
+    """
+    data = d    
+    fmt = settings['formats'][getFormat()]
+    # gelbooru queries returns a dict instead of a list
+    if isinstance(data, dict):
+        # need to break it out
+        for key in data.keys():
+            # look for the key that gives the equivalent list
+            # define per booru in the settings file
+            if fmt['postlist_sublist'] in key:
+                data = data[key]
+                break
+    return data
+
 def searchbooru(query, removeanimated, curpage, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
 
@@ -90,8 +190,6 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
         of the id for that image on the searched booru.
         The string in this return is new current page number, which may or may not have been changed.
     """    
-    host = gethost()
-    u, a = getauth()
 
     #If the page isn't changing, then the user almost certainly is initiating a new
     #search, so we can set the page number back to 1.
@@ -105,29 +203,10 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #We're about to use this in a url, so make it a string real quick
     curpage = str(curpage)
 
-    url = host + f"/posts.json?"
+    # magic number for now, probably could be a parameter in the future
+    limit = str(6)
 
-    #Only append login parameters if we actually got some from the above getauth()
-    #In the default settings.json in the repo, these are empty strings, so they'll
-    #return false here.
-    if u:
-        url += f"login={u}&"
-    if a:
-        url += f"api_key={a}&"
-
-    #Prepare the append some search tags
-    #We can leave this here even if param:query is empty, since the api call still works apparently
-    url += "tags="
-
-    #Add in the -animated tag if that checkbox was selected
-    #I have no idea what happens if "animated" is searched for and that box is checked,
-    #and I'm not testing that myself
-    if removeanimated:
-        url += "-animated+"
-
-    #TODO: Add a settings option to change the images-per-page here
-    url += f"{parse.quote_plus(query)}&limit=6"
-    url += f"&page={curpage}"
+    url = constructQueryURL(query, removeanimated, curpage, limit)
 
     #I had this print here just to test my url building, but I kind of like it, so I'm leaving it
     print(url)
@@ -137,7 +216,9 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
     response = urlopen(request)
     data = json.loads(response.read())
-
+    
+    data = unpackDict(data)
+    fmt = settings['formats'][getFormat()]
     localimages = []
 
     #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
@@ -150,8 +231,8 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     for i in range(len(data)):
         #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
         #Doesn't matter. If there's no file to grab, just skip the entry.
-        if 'file_url' in data[i]:
-            imageurl = data[i]['file_url']
+        if fmt['image'] in data[i]:
+            imageurl = data[i][fmt['image']]
             #The format of this string is important. When we later go to query for specific posts, the user can use
             #"id:xxxxxx" instead of a full url to make that request
             id = "id:" + str(data[i]['id'])
@@ -161,7 +242,9 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
             #We're storing the images locally to be crammed into a Gradio gallery later.
             #This seemed simpler than using PIL images or whatever.
             savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            image = urlretrieve(imageurl, savepath)
+            
+            saveImage(imageurl, savepath)
+            
             localimages.append((savepath, id))
 
     #We're returning not just the images for the gallery, but the current page number
@@ -192,6 +275,41 @@ def updatesettings(active = settings['active']):
             apikey = booru['apikey']
     return username, apikey, active, active
 
+def constructPostURL(id):
+    """
+    Constructs a Post URL using an ID
+    TODO: If someone else wants to parsing pasted links
+    please do so. I'm not going to do that here.
+    
+    Params:
+        id: [str] post ID
+    Returns:
+        url: [str] post URL
+    """
+    host = gethost()
+    u, a = getauth()
+    
+    fmt = settings['formats'][getFormat()]
+    auth = ''
+    
+    url = host + fmt['post']
+    
+    #Only append login parameters if we actually got some from the above getauth()
+    #In the default settings.json in the repo, these are empty strings, so they'll
+    #return false here.
+    if u or a:
+        auth += fmt['authparams']
+        
+        # it either inserts the correct thing or a blank string, so it's ok
+        auth = auth.replace("{USER}", u)
+        auth = auth.replace("{KEY}", a)
+    
+    url = url.replace("{ID}", id)
+    
+    # it either inserts a correct thing or a blank string, so it's ok
+    url = url.replace("{AUTH}", auth)
+    return url
+
 def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
 
@@ -214,61 +332,87 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
     #I struggle to remember what circumstance compelled me to add this.
     if not isinstance(url, str):
         return
-
+    
     #Quick check to see if the user is selecting with the "id:xxxxxx" format.
     #If the are, we can all the extra stuff for them
     if url[0:2] == "id":
-        url = gethost() + "/posts/" + url[3:]
+        id = url[3:]
+        url = constructPostURL(id)
+    
+    # previous implementation, not going to work on this
+    else:
 
-    #Many times, copying a link right off the booru will result in a lot of extra
-    #url parameters. We need to get rid of all those before we add our own.
-    index = url.find("?")
-    if index > -1:
-        url = url[:index]
+        #Many times, copying a link right off the booru will result in a lot of extra
+        #url parameters. We need to get rid of all those before we add our own.
+        index = url.find("?")
+        if index > -1:
+            url = url[:index]
 
-    #Check to make sure the request isn't already a .json api call before we add it ourselves
-    if not url[-4:] == "json":
-        url = url + ".json"
+        #Check to make sure the request isn't already a .json api call before we add it ourselves
+        if not url[-4:] == "json":
+            url = url + ".json"
 
-    #Add the question mark denoting url parameters back in
-    url += "?"
+        #Add the question mark denoting url parameters back in
+        url += "?"
 
-    u, a = getauth()
+        u, a = getauth()
 
-    #Only append login parameters if we actually got some from the above getauth()
-    #In the default settings.json in the repo, these are empty strings, so they'll
-    #return false here.
-    if u:
-        url += f"login={u}&"
-    if a:
-        url += f"api_key={a}&"
+        #Only append login parameters if we actually got some from the above getauth()
+        #In the default settings.json in the repo, these are empty strings, so they'll
+        #return false here.
+        if u:
+            url += f"login={u}&"
+        if a:
+            url += f"api_key={a}&"
 
     print(url)
+    
+    fmt = settings['formats'][getFormat()]
 
-    response = urlopen(url)
+    # always need a header
+    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    response = urlopen(request)
     data = json.loads(response.read())
 
-    tags = data['tag_string_general']
-    imageurl = data['file_url']
+    # is a single post, or is it a gelbooru style response?
+    # probably a more elegant way to do this, but /shrug
+    try:
+        fmt['postlist_sublist']
+        data = unpackDict(data)[0]
+    except:
+        data = data
+    
+    tags = data[fmt['taglist']]
+    imageurl = data[fmt['image']]
 
     if "http" not in imageurl:
         imageurl = gethost() + imageurl
+    
+    # very lazy way of checking if these exist
+    artisttags = ''
+    charactertags = ''
+    copyrighttags = ''
+    metatags = ''
+    
+    try:
+        artisttags = data["tag_string_artist"]
+        charactertags = data["tag_string_character"]
+        copyrighttags = data["tag_string_copyright"]
+        metatags = data["tag_string_meta"]
 
-    artisttags = data["tag_string_artist"]
-    charactertags = data["tag_string_character"]
-    copyrighttags = data["tag_string_copyright"]
-    metatags = data["tag_string_meta"]
-
-    #We got all these extra tags, but we're only including them in the final string if the relevant 
-    #checkboxes have been checked
-    if includeartist and artisttags:
-        tags = artisttags + " " + tags
-    if includecharacter and charactertags:
-        tags = charactertags + " " + tags
-    if includecopyright and copyrighttags:
-        tags = copyrighttags + " " + tags
-    if includemeta and metatags:
-        tags = metatags + " " + tags
+        #We got all these extra tags, but we're only including them in the final string if the relevant 
+        #checkboxes have been checked
+        if includeartist and artisttags:
+            tags = artisttags + " " + tags
+        if includecharacter and charactertags:
+            tags = charactertags + " " + tags
+        if includecopyright and copyrighttags:
+            tags = copyrighttags + " " + tags
+        if includemeta and metatags:
+            tags = metatags + " " + tags
+    # :P
+    except:
+        print(f'Tag Separation Not Supported by {gethost()} !')
 
     #It would be a shame if someone got these backwards and couldn't figure out the issue for a whole day
     if replacespaces:
@@ -284,7 +428,7 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
     #Creating the temp directory if it doesn't already exist
     if not os.path.exists(edirectory + "tempimages"):
         os.makedirs(edirectory + "tempimages")
-    urlretrieve(imageurl, edirectory +  "tempimages\\temp.jpg")
+    saveImage(imageurl, edirectory +  "tempimages\\temp.jpg")
 
     #My god look at that tuple
     return (tags, edirectory + "tempimages\\temp.jpg", artisttags, charactertags, copyrighttags, metatags)
