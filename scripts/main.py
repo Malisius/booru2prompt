@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.request import urlopen, urlretrieve, Request
+from urllib.request import urlopen, urlretrieve, Request, build_opener, install_opener
 from urllib import parse
 import inspect
 
@@ -22,6 +22,14 @@ def loadsettings():
         dict: settings and api keys
     """    
     print("Loading booru2prompt settings")
+
+    #Setting up urllib
+    opener = build_opener()
+    opener.addheaders = [
+        ('User-Agent', 'booru2prompt, a Stable Diffusion project (made by Borderless)')
+    ]
+    install_opener(opener)
+
     file = open(edirectory + "settings.json")
     settings = json.load(file)
     file.close()
@@ -134,7 +142,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
 
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
     #setting a user-agent, so this builds a request with custom headers
-    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    request = Request(url, data=None)
     response = urlopen(request)
     data = json.loads(response.read())
 
