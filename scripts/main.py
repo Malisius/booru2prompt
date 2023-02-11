@@ -192,7 +192,7 @@ def updatesettings(active = settings['active']):
             apikey = booru['apikey']
     return username, apikey, active, active
 
-def grabtags(url, negprompt, replacespaces, replaceunderscores, escapeParentheses, includeartist, includecharacter, includecopyright, includemeta):
+def grabtags(url, negprompt, replacespaces, replaceunderscores, escapeparentheses, includeartist, includecharacter, includecopyright, includemeta):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
 
     Args:
@@ -200,7 +200,7 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, escapeParenthese
         negprompt (str): A negative prompt to paste into the relevant field. Setting to None will delete the existing negative prompt at the target
         replacespaces (bool): True to replace all the spaces in the tag list with ", "
         replaceunderscores (bool): True to replace the underscores in each tag with a space
-        escapeParentheses (bool): True to escape the parentheses in each tag
+        escapeparentheses (bool): True to escape the parentheses in each tag
         includeartist (bool): True to include the artist tags in the final tag string
         includecharacter (bool): True to include the character tags in the final tag string
         includecopyright (bool): True to include the copyright tags in the final tag string
@@ -276,7 +276,7 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, escapeParenthese
         tags = tags.replace(" ", ", ")
     if replaceunderscores:
         tags = tags.replace("_", " ")
-    if escapeParentheses:
+    if escapeparentheses:
         tags = tags.replace("(", "\\(").replace(")", "\\)")
 
     #Adding a line for the negative prompt if we receieved one
@@ -332,7 +332,7 @@ def on_ui_tabs():
 
                     replacespaces = gr.Checkbox(value=True, label="Replace spaces with a comma and a space", interactive=True)
                     replaceunderscores = gr.Checkbox(value=False, label="Replace underscores with spaces")
-                    escapeParentheses = gr.Checkbox(value=True, label="Escape parentheses")
+                    escapeparentheses = gr.Checkbox(value=True, label="Escape parentheses")
 
                     selectbutton = gr.Button(value="Select Image", variant="primary")
                     selectbutton.click(fn=grabtags,
@@ -341,7 +341,7 @@ def on_ui_tabs():
                             negprompt,
                             replacespaces, 
                             replaceunderscores,
-                            escapeParentheses,
+                            escapeparentheses,
                             includeartist, 
                             includecharacter, 
                             includecopyright, 
