@@ -1,5 +1,7 @@
+import io
 import json
 import os
+from PIL import Image
 from urllib.request import urlopen, urlretrieve, Request
 from urllib import parse
 import inspect
@@ -9,11 +11,15 @@ import gradio as gr
 import modules.ui
 from modules import script_callbacks, scripts
 
+b2pheader = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'}
+
 #The auto1111 guide on developing extensions says to use scripts.basedir() to get the current directory
 #However, for some reason, this kept returning the stable diffusion root instead.
 #So this is my janky workaround to get this extensions directory.
 edirectory = inspect.getfile(lambda: None)
 edirectory = edirectory[:edirectory.find("scripts")]
+
+#tempimgdirectory = os.path.join(edirectory, "tempimages")
 
 def loadsettings():
     """Return a dictionary of settings read from settings.json in the extension directory
@@ -22,10 +28,8 @@ def loadsettings():
         dict: settings and api keys
     """    
     print("Loading booru2prompt settings")
-    file = open(edirectory + "settings.json")
-    settings = json.load(file)
-    file.close()
-    return settings
+    with open(edirectory + "settings.json") as file:
+        return json.load(file)
 
 def savesettings(active, username, apikey, negprompt):
     """Save the current username and api key to the active booru
@@ -134,7 +138,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
 
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
     #setting a user-agent, so this builds a request with custom headers
-    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    request = Request(url, data=None, headers = b2pheader)
     response = urlopen(request)
     data = json.loads(response.read())
 
@@ -142,8 +146,8 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
 
     #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
     #check each time we go to save images, just in case
-    if not os.path.exists(edirectory + "tempimages"):
-        os.makedirs(edirectory + "tempimages")
+    #if not os.path.isdir(tempimgdirectory):
+    #    os.makedirs(tempimgdirectory)
 
     #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
     #so we need to make sure to only step through what we got back
@@ -158,11 +162,19 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
             #I forget why I added this
             if "http" not in imageurl:
                 imageurl = gethost() + imageurl
+                
             #We're storing the images locally to be crammed into a Gradio gallery later.
             #This seemed simpler than using PIL images or whatever.
-            savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            image = urlretrieve(imageurl, savepath)
-            localimages.append((savepath, id))
+            #savepath = os.path.join(tempimgdirectory, f"temp{i}.jpg")      
+            #image = urlretrieve(imageurl, savepath)
+            
+            #Store list of PIL image for Gradio gallery
+            print(imageurl)
+            request = Request(imageurl, data=None, headers = b2pheader)
+            response = urlopen(request)
+            image = Image.open(io.BytesIO(response.read()))
+          
+            localimages.append((image, id))
 
     #We're returning not just the images for the gallery, but the current page number
     #So that textbox in Gradio can be updated
@@ -282,12 +294,18 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
         tags += f"\nNegative prompt: {negprompt}"
 
     #Creating the temp directory if it doesn't already exist
-    if not os.path.exists(edirectory + "tempimages"):
-        os.makedirs(edirectory + "tempimages")
-    urlretrieve(imageurl, edirectory +  "tempimages\\temp.jpg")
+    #if not os.path.isdir(tempimgdirectory):
+    #    os.makedirs(tempimgdirectory)
+    #savepath = os.path.join(tempimgdirectory, "temp.jpg")
+    #urlretrieve(imageurl, savepath)
+
+    print(imageurl)
+    request = Request(imageurl, data=None, headers = b2pheader)
+    response = urlopen(request)
+    image = Image.open(io.BytesIO(response.read()))
 
     #My god look at that tuple
-    return (tags, edirectory + "tempimages\\temp.jpg", artisttags, charactertags, copyrighttags, metatags)
+    return (tags, image, artisttags, charactertags, copyrighttags, metatags)
 
 def on_ui_tabs():
     #Just setting up some gradio components way early
@@ -296,7 +314,7 @@ def on_ui_tabs():
     #initialized, so I put them up here instead. This is totally fine, since they can be 
     #rendered in the appropirate place with .render()
     boorulist = [booru["name"] for booru in settings["boorus"]]
-    selectimage = gr.Image(label="Image", type="filepath", interactive=False)
+    selectimage = gr.Image(label="Image", type="pil", interactive=False)
     searchimages = gr.Gallery(label="Search Results")
     searchimages.style(grid=3)
     activeboorutext1 = gr.Textbox(label="Current Booru", value=settings['active'], interactive=False)
