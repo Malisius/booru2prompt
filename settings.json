@@ -1,18 +1,16 @@
 {
     "active": "Danbooru",
     "negativeprompt": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, artist name",
-    "boorus": [
-        {
-            "name": "Danbooru",
+    "boorus": {
+        "Danbooru": {
             "host": "https://danbooru.donmai.us",
             "username": "",
             "apikey": ""
         },
-        {
-            "name": "AIBooru",
+        "AIBooru": {
             "host": "https://aibooru.space",
             "username": "",
             "apikey": ""
         }
-    ]
+    }
 }
