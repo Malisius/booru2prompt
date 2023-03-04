@@ -39,18 +39,17 @@ def savesettings(active, username, apikey, negprompt):
         username (str): The username for that booru
         apikey (str): The user's api key
         negprompt (str): The negative prompt to be appended to each image selection
-    """    
+    """
+    
     settings["active"] = active
     settings["negativeprompt"] = negprompt
 
     #Stepping through all the boorus in the settings till we find the right one
-    for booru in settings['boorus']:
-        if booru['name'] == active:
-            booru["username"] = username
-            booru["apikey"] = apikey
-    file = open(edirectory + "settings.json", "w")
-    file.write(json.dumps(settings))
-    file.close()
+    b = settings['boorus'][active]
+    b["username"] = username
+    b["apikey"] = apikey
+    with open(edirectory + "settings.json", "w") as file:
+        file.write(json.dumps(settings, indent=4))
 
 #We're loading the settings here since all the further functions depend on this existing already
 settings = loadsettings()
@@ -60,10 +59,11 @@ def getauth():
 
     Returns:
         tuple: (username, apikey) for whichever booru is selected in the dropdown
-    """    
-    for b in settings['boorus']:
-        if b['name'] == settings['active']:
-            return b['username'], b['apikey']
+    """
+    print("SETTINGS - ", settings)
+    active = settings['active']
+    b = settings['boorus'][active]
+    return b['username'], b['apikey']
 
 def gethost():
     """Get the url for the currently selected booru.
@@ -75,9 +75,10 @@ def gethost():
     Returns:
         str: The full url for the selected booru
     """    
-    for booru in settings['boorus']:
-        if booru['name'] == settings['active']:
-            return booru['host']
+    print("SETTINGS - ", settings)
+    active = settings['active']
+    b = settings['boorus'][active]
+    return b['host']
 
 def searchbooru(query, removeanimated, curpage, pagechange=0):
     """Search the currently selected booru, and return a list of images and the current page.
@@ -115,6 +116,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #In the default settings.json in the repo, these are empty strings, so they'll
     #return false here.
     if u:
+        u = parse.quote_plus(u) #Fix usernames with spaces causes problems
         url += f"login={u}&"
     if a:
         url += f"api_key={a}&"
@@ -134,7 +136,7 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     url += f"&page={curpage}"
 
     #I had this print here just to test my url building, but I kind of like it, so I'm leaving it
-    print(url)
+    print(url)  
 
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
     #setting a user-agent, so this builds a request with custom headers
@@ -198,11 +200,8 @@ def updatesettings(active = settings['active']):
         We're only returning the name twice here since it needs to update two seperate Gradio components.
     """    
     settings['active'] = active
-    for booru in settings['boorus']:
-        if booru['name'] == active:
-            username = booru['username']
-            apikey = booru['apikey']
-    return username, apikey, active, active
+    b = settings['boorus'][active]
+    return b['username'], b['apikey'], active, active
 
 def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, includecharacter, includecopyright, includemeta):
     """Get the tags for the selected post and update all the relevant textboxes on the Select tab.
@@ -313,7 +312,7 @@ def on_ui_tabs():
     #However, for these ones, I need to reference them before they would've otherwise been
     #initialized, so I put them up here instead. This is totally fine, since they can be 
     #rendered in the appropirate place with .render()
-    boorulist = [booru["name"] for booru in settings["boorus"]]
+    boorulist = list(settings['boorus'].keys())
     selectimage = gr.Image(label="Image", type="pil", interactive=False)
     searchimages = gr.Gallery(label="Search Results")
     searchimages.style(grid=3)
