@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.request import urlopen, urlretrieve, Request
+from urllib.request import urlopen, urlretrieve, Request, build_opener, install_opener
 from urllib import parse
 import inspect
 
@@ -14,6 +14,11 @@ from modules import script_callbacks, scripts
 #So this is my janky workaround to get this extensions directory.
 edirectory = inspect.getfile(lambda: None)
 edirectory = edirectory[:edirectory.find("scripts")]
+
+#User agent needed as some sites will 403
+opener = build_opener()
+opener.addheaders = [('User-agent', 'booru2prompt, a Stable Diffusion project (made by Borderless)')]
+install_opener(opener)
 
 def loadsettings():
     """Return a dictionary of settings read from settings.json in the extension directory
@@ -133,8 +138,8 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     print(url)
 
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
-    #setting a user-agent, so this builds a request with custom headers
-    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    #setting a user-agent, so this builds a request with custom headers 
+    request = Request(url, data=None)
     response = urlopen(request)
     data = json.loads(response.read())
 
@@ -245,19 +250,53 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
 
     print(url)
 
-    response = urlopen(url)
+    request = Request(url, data=None)
+    response = urlopen(request)
     data = json.loads(response.read())
 
-    tags = data['tag_string_general']
-    imageurl = data['file_url']
+    if settings['active'] == "e621" or settings['active'] == "e6ai":
+        post = data['post']
+        imageurl = post['file']['url']
+        
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+        
+        tags = ""
 
-    if "http" not in imageurl:
-        imageurl = gethost() + imageurl
+        if 'general' in post['tags']:
+            tags = ' '.join(post['tags']['general'])
+        
 
-    artisttags = data["tag_string_artist"]
-    charactertags = data["tag_string_character"]
-    copyrighttags = data["tag_string_copyright"]
-    metatags = data["tag_string_meta"]
+        artisttags = ""
+        charactertags = ""
+        copyrighttags = ""
+        metatags = ""
+
+        if 'artist' in post['tags']:
+            artisttags = " ".join(post['tags']['artist'])
+
+        if 'character' in post['tags']:
+            charactertags = " ".join(post['tags']['character'])
+
+        if 'species' in post['tags']:
+            charactertags += " " + ' '.join(post['tags']['species'])
+
+        if 'copyright' in post['tags']:
+            copyrighttags = " ".join(post['tags']['copyright'])
+
+        if 'meta' in post['tags']:
+            metatags = " ".join(post['tags']['meta'])
+    else:
+        tags = data['tag_string_general']
+        imageurl = data['file_url']
+
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+
+        artisttags = data["tag_string_artist"]
+        charactertags = data["tag_string_character"]
+        copyrighttags = data["tag_string_copyright"]
+        metatags = data["tag_string_meta"]
 
     #We got all these extra tags, but we're only including them in the final string if the relevant 
     #checkboxes have been checked

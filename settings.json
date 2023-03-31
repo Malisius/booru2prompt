@@ -13,6 +13,18 @@
             "host": "https://aibooru.space",
             "username": "",
             "apikey": ""
+        },
+        {
+            "name": "e621",
+            "host": "https://e621.net/",
+            "username": "",
+            "apikey": ""
+        },
+        {
+            "name": "e6ai",
+            "host": "https://e6ai.net/",
+            "username": "",
+            "apikey": ""
         }
     ]
 }
