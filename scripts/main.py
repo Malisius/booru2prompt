@@ -142,7 +142,10 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     request = Request(url, data=None)
     response = urlopen(request)
     data = json.loads(response.read())
-
+    
+    if settings['active'] == "e621" or settings['active'] == "e6ai":
+        data = data['posts']
+    
     localimages = []
 
     #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
@@ -153,21 +156,32 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
     #so we need to make sure to only step through what we got back
     for i in range(len(data)):
-        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
-        #Doesn't matter. If there's no file to grab, just skip the entry.
-        if 'file_url' in data[i]:
-            imageurl = data[i]['file_url']
-            #The format of this string is important. When we later go to query for specific posts, the user can use
-            #"id:xxxxxx" instead of a full url to make that request
-            id = "id:" + str(data[i]['id'])
-            #I forget why I added this
-            if "http" not in imageurl:
-                imageurl = gethost() + imageurl
-            #We're storing the images locally to be crammed into a Gradio gallery later.
-            #This seemed simpler than using PIL images or whatever.
-            savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            image = urlretrieve(imageurl, savepath)
-            localimages.append((savepath, id))
+        imageurl = ""
+
+        if settings['active'] == "e621" or settings['active'] == "e6ai":
+            if 'file' in data[i]:
+                imageurl = data['file']['url']
+            else:
+                continue
+        else:
+            #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
+            #Doesn't matter. If there's no file to grab, just skip the entry.
+            if 'file_url' in data[i]:
+                imageurl = data[i]['file_url']
+            else:
+                continue
+        
+        #The format of this string is important. When we later go to query for specific posts, the user can use
+        #"id:xxxxxx" instead of a full url to make that request
+        id = "id:" + str(data[i]['id'])
+        #I forget why I added this
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+        #We're storing the images locally to be crammed into a Gradio gallery later.
+        #This seemed simpler than using PIL images or whatever.
+        savepath = edirectory + f"tempimages\\temp{i}.jpg"
+        image = urlretrieve(imageurl, savepath)
+        localimages.append((savepath, id))
 
     #We're returning not just the images for the gallery, but the current page number
     #So that textbox in Gradio can be updated
