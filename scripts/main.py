@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.request import urlopen, urlretrieve, Request
+from urllib.request import urlopen, urlretrieve, Request, build_opener, install_opener
 from urllib import parse
 import inspect
 
@@ -14,6 +14,11 @@ from modules import script_callbacks, scripts
 #So this is my janky workaround to get this extensions directory.
 edirectory = inspect.getfile(lambda: None)
 edirectory = edirectory[:edirectory.find("scripts")]
+
+#User agent needed as some sites will 403
+opener = build_opener()
+opener.addheaders = [('User-agent', 'booru2prompt, a Stable Diffusion project (made by Borderless)')]
+install_opener(opener)
 
 def loadsettings():
     """Return a dictionary of settings read from settings.json in the extension directory
@@ -133,11 +138,14 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     print(url)
 
     #Normally it's fine to call urlopen() with just a string url, but some boorus get finicky about
-    #setting a user-agent, so this builds a request with custom headers
-    request = Request(url, data=None, headers = {'User-Agent': 'booru2prompt, a Stable Diffusion project (made by Borderless)'})
+    #setting a user-agent, so this builds a request with custom headers 
+    request = Request(url, data=None)
     response = urlopen(request)
     data = json.loads(response.read())
-
+    
+    if settings['active'] == "e621" or settings['active'] == "e6ai":
+        data = data['posts']
+    
     localimages = []
 
     #Creating the required directory for temporary images could be done in a preload.py, but I prefer to do this
@@ -148,21 +156,32 @@ def searchbooru(query, removeanimated, curpage, pagechange=0):
     #The length of the returned json array might not actually be equal to what we reqeusted with limit=,
     #so we need to make sure to only step through what we got back
     for i in range(len(data)):
-        #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
-        #Doesn't matter. If there's no file to grab, just skip the entry.
-        if 'file_url' in data[i]:
-            imageurl = data[i]['file_url']
-            #The format of this string is important. When we later go to query for specific posts, the user can use
-            #"id:xxxxxx" instead of a full url to make that request
-            id = "id:" + str(data[i]['id'])
-            #I forget why I added this
-            if "http" not in imageurl:
-                imageurl = gethost() + imageurl
-            #We're storing the images locally to be crammed into a Gradio gallery later.
-            #This seemed simpler than using PIL images or whatever.
-            savepath = edirectory + f"tempimages\\temp{i}.jpg"
-            image = urlretrieve(imageurl, savepath)
-            localimages.append((savepath, id))
+        imageurl = ""
+
+        if settings['active'] == "e621" or settings['active'] == "e6ai":
+            if 'file' in data[i]:
+                imageurl = data['file']['url']
+            else:
+                continue
+        else:
+            #So I guess not every returned result has a 'file_url'. Could not tell you why that is.
+            #Doesn't matter. If there's no file to grab, just skip the entry.
+            if 'file_url' in data[i]:
+                imageurl = data[i]['file_url']
+            else:
+                continue
+        
+        #The format of this string is important. When we later go to query for specific posts, the user can use
+        #"id:xxxxxx" instead of a full url to make that request
+        id = "id:" + str(data[i]['id'])
+        #I forget why I added this
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+        #We're storing the images locally to be crammed into a Gradio gallery later.
+        #This seemed simpler than using PIL images or whatever.
+        savepath = edirectory + f"tempimages\\temp{i}.jpg"
+        image = urlretrieve(imageurl, savepath)
+        localimages.append((savepath, id))
 
     #We're returning not just the images for the gallery, but the current page number
     #So that textbox in Gradio can be updated
@@ -245,19 +264,53 @@ def grabtags(url, negprompt, replacespaces, replaceunderscores, includeartist, i
 
     print(url)
 
-    response = urlopen(url)
+    request = Request(url, data=None)
+    response = urlopen(request)
     data = json.loads(response.read())
 
-    tags = data['tag_string_general']
-    imageurl = data['file_url']
+    if settings['active'] == "e621" or settings['active'] == "e6ai":
+        post = data['post']
+        imageurl = post['file']['url']
+        
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+        
+        tags = ""
 
-    if "http" not in imageurl:
-        imageurl = gethost() + imageurl
+        if 'general' in post['tags']:
+            tags = ' '.join(post['tags']['general'])
+        
 
-    artisttags = data["tag_string_artist"]
-    charactertags = data["tag_string_character"]
-    copyrighttags = data["tag_string_copyright"]
-    metatags = data["tag_string_meta"]
+        artisttags = ""
+        charactertags = ""
+        copyrighttags = ""
+        metatags = ""
+
+        if 'artist' in post['tags']:
+            artisttags = " ".join(post['tags']['artist'])
+
+        if 'character' in post['tags']:
+            charactertags = " ".join(post['tags']['character'])
+
+        if 'species' in post['tags']:
+            charactertags += " " + ' '.join(post['tags']['species'])
+
+        if 'copyright' in post['tags']:
+            copyrighttags = " ".join(post['tags']['copyright'])
+
+        if 'meta' in post['tags']:
+            metatags = " ".join(post['tags']['meta'])
+    else:
+        tags = data['tag_string_general']
+        imageurl = data['file_url']
+
+        if "http" not in imageurl:
+            imageurl = gethost() + imageurl
+
+        artisttags = data["tag_string_artist"]
+        charactertags = data["tag_string_character"]
+        copyrighttags = data["tag_string_copyright"]
+        metatags = data["tag_string_meta"]
 
     #We got all these extra tags, but we're only including them in the final string if the relevant 
     #checkboxes have been checked
